@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Capture Image</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+</head>
+<body>
+    <h1>Capture Image for {{ username }} (ID: {{ userid }})</h1>
+    <video id="video" width="640" height="480" autoplay></video>
+    <button id="capture">Capture Image</button>
+    <div id="result"></div>
+    
+    <script>
+        const video = document.getElementById('video');
+        const captureButton = document.getElementById('capture');
+        const resultDiv = document.getElementById('result');
+        let imageCount = 0;
+
+        // Access webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                console.error("Error accessing webcam: ", err);
+            });
+
+        // Capture image
+        captureButton.addEventListener('click', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            // Face detection and save logic here
+            // Here you can send the imageData to the Flask backend for saving
+
+            // Use AJAX to send image data to Flask
+            const formData = new FormData();
+            formData.append('image', canvas.toDataURL('image/jpeg')); // Convert to JPEG format
+
+            fetch('/save_image', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    imageCount++;
+                    resultDiv.innerHTML += `<p>Image ${imageCount} saved successfully!</p>`;
+                } else {
+                    resultDiv.innerHTML += `<p>Error saving image!</p>`;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
