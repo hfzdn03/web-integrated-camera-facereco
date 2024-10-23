@@ -36,8 +36,8 @@ directories = [
 ]
 
 # Define the minimum detection duration and detection timeout
-MIN_DETECTION_DURATION = timedelta(seconds=3)  # 3 seconds
-DETECTION_TIMEOUT = timedelta(seconds=2)  # 2 seconds
+MIN_DETECTION_DURATION = timedelta(seconds=2)  # 2 seconds
+DETECTION_TIMEOUT = timedelta(seconds=1)  # 1 seconds
 
 for directory in directories:
     if not os.path.isdir(directory):
