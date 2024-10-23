@@ -1,1 +1,1 @@
-hfzdn03.pythonanywhere.com
+https://www.hfzdn03.pythonanywhere.com
