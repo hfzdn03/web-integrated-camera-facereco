@@ -184,50 +184,35 @@
         const canvas2 = document.getElementById('canvas2');
         const context = canvas2.getContext('2d');
 
-        // Access the camera for the registration modal
-        navigator.mediaDevices.getUserMedia({ video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
+        // Initialize video streams for both detection and registration
+        function initializeCamera(videoElement) {
+            navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
                 audio: false
             })
             .then(stream => {
-                video.srcObject = stream;
+                videoElement.srcObject = stream;
+                videoElement.play();
             })
             .catch(err => {
                 console.error("Error accessing the camera: ", err);
                 alert("Camera access is required for this application. Please allow access.");
             });
+        }
 
-        // Access the camera for detection capture
-        navigator.mediaDevices.getUserMedia({ video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                },
-                audio: false
-            })
-            .then(stream => {
-                video2.srcObject = stream;
-            })
-            .catch(err => {
-                console.error("Error accessing the camera: ", err);
-                alert("Camera access is required for this application. Please allow access.");
-            });
+        // Call initializeCamera for both video elements
+        initializeCamera(video);
+        initializeCamera(video2);
 
         // Adjust canvas size when video metadata is loaded
         video2.addEventListener('loadedmetadata', () => {
             // Use the video's intrinsic dimensions
             canvas2.width = video2.videoWidth;
             canvas2.height = video2.videoHeight;
-            drawFrame(); // Call function to draw the video frame onto canvas
+            // Continuously capture frames and send them for processing
+            setInterval(sendFrame, 500);  // Send a frame every 500ms
         });
-
-        // Function to draw video frame on canvas
-        function drawFrame() {
-            ctx.drawImage(video2, 0, 0, canvas2.width, canvas2.height);
-            requestAnimationFrame(drawFrame); // Continuously draw video frame
-        }
-
+        
     // Capture image functionality
     $('#capture-btn').on('click', function () {
         const canvas = document.createElement('canvas');
@@ -285,8 +270,7 @@
             });
         }
 
-        // Continuously capture frames and send them for processing
-        setInterval(sendFrame, 500);  // Send a frame every 500ms
+
 
         $(document).ready(function() {
             checkProgress();  // Start checking progress when the document is ready
