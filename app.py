@@ -9,7 +9,11 @@ import threading
 import numpy as np
 import time
 import base64
+import face_recognition
+from io import BytesIO
+from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
+import pytz
 
 from datetime import date, datetime, timedelta
 
@@ -21,6 +25,8 @@ unknown_threshold = 0.5  # Adjusted threshold for recognizing unknown faces
 # Placeholder variable for progress
 progress = 0
 
+is_reloading = False  # Initially, reloading is not happening
+
 # Create necessary directories if they do not exist
 directories = [
     'static/faces/CNNalgo',
@@ -28,6 +34,10 @@ directories = [
     'static/faces/SVCalgo',
     'face_rec'
 ]
+
+# Define the minimum detection duration and detection timeout
+MIN_DETECTION_DURATION = timedelta(seconds=3)  # 3 seconds
+DETECTION_TIMEOUT = timedelta(seconds=2)  # 2 seconds
 
 for directory in directories:
     if not os.path.isdir(directory):
@@ -68,7 +78,10 @@ def add_attendance(name):
     if '_' not in name:
         return
     username, userid = name.split('_')
-    current_time = datetime.now().strftime("%H:%M:%S")
+
+    # Set the timezone to Kuala Lumpur/Singapore
+    kl_timezone = pytz.timezone('Asia/Kuala_Lumpur')
+    current_time = datetime.now(kl_timezone).strftime("%H:%M:%S")
     
     df = pd.read_csv(f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv')
     if int(userid) in list(df['Roll']):
@@ -122,7 +135,9 @@ def process_frames(frame, face_data):
             detection_duration = datetime.now() - detection_start_time[name]
             if detection_duration >= MIN_DETECTION_DURATION:
                 add_attendance(name)
-                del detection_start_time[name]
+                # Safely delete the name from detection_start_time if it exists
+                if name in detection_start_time:
+                    del detection_start_time[name]
 
         # Remove if detection exceeds timeout
         if name in detection_start_time and datetime.now() - detection_start_time[name] >= DETECTION_TIMEOUT:
@@ -179,57 +194,6 @@ def home():
     names, rolls, times, l = extract_attendance()
     return render_template('home.html', names=names, rolls=rolls, times=times, l=l, totalreg=len(os.listdir('face_rec')), datetoday2=date.today().strftime("%d-%B-%Y"), algo='FaceReco mod', facereco = True)
 
-@app.route('/start', methods=['GET'])
-def start():
-    """Start the face recognition process for detection."""
-    cap = cv2.VideoCapture(0)
-    cap.set(3, 640)  # Set width
-    cap.set(4, 480)  # Set height
-
-    global known_face_encodings, known_face_names
-    known_face_encodings, known_face_names = load_face_encodings()  # Load encodings at start
-    cv2.namedWindow('Face Detection', cv2.WND_PROP_FULLSCREEN)
-
-    face_data = []
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        face_locations = fr.face_locations(rgb_frame, model="hog")
-        face_encodings = fr.face_encodings(rgb_frame, face_locations)
-
-        face_data.clear()  # Clear previous face data
-
-        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-            name = identify_face(face_encoding)
-            face_data.append((name, (left, top, right, bottom)))
-
-            # Draw rectangles and labels
-            cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
-            cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 255, 255), 2)
-
-            # Handle attendance check logic (if needed)
-            if name != "Unknown" and name not in detection_start_time:
-                detection_start_time[name] = datetime.now()
-            elif name != "Unknown":
-                detection_duration = datetime.now() - detection_start_time[name]
-                if detection_duration >= timedelta(seconds=3):  # 3 seconds detection
-                    # Add to attendance here if necessary
-                    del detection_start_time[name]
-
-        # Show the frame
-        cv2.imshow('Face Detection', frame)
-
-        if cv2.waitKey(1) == 27:  # Press 'ESC' to exit
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-    return redirect('/')
-
 @app.route('/add', methods=['POST'])
 def add_user():
     """Add a new user and update face encodings"""
@@ -241,20 +205,36 @@ def add_user():
     if not os.path.isdir(userimagefolder):
         os.makedirs(userimagefolder)
 
-    # Get the images from the request
-    images = request.files.getlist('image')  # Use getlist to handle multiple files
+    # Get the image data from the request
+    img_data = request.form.get('image')  # Get base64-encoded image
 
-    # Save the images
-    for i, image in enumerate(images):
-        # Save each image using its filename to avoid overwriting
-        filename = secure_filename(image.filename)  # Use secure_filename to prevent path issues
-        image.save(os.path.join(userimagefolder, f"{filename}"))  # Save the image
+    # Decode the base64 image
+    img_data = img_data.split(',')[1]  # Remove the data URL header
+    img_bytes = base64.b64decode(img_data)
+    img = Image.open(BytesIO(img_bytes))  # Convert to PIL Image
 
-    # Optionally process images for encoding here.
+    # Convert the image to RGB (to handle cases where the image might be RGBA or other formats)
+    img = img.convert('RGB')
+
+    # Convert image to NumPy array for face detection
+    img_array = np.array(img)
+
+    # Detect face locations
+    face_locations = face_recognition.face_locations(img_array)
+
+    if face_locations:
+        # Extract the first detected face
+        top, right, bottom, left = face_locations[0]
+
+        # Crop the face region
+        face_image = img.crop((left, top, right, bottom))
+
+        # Save the cropped face
+        face_image.save(os.path.join(userimagefolder, f"{newusername}_{newuserid}.png"))
+    else:
+        return "No face detected in the image.", 400
 
     return redirect('/')
-
-
 
 @app.route('/users/', methods=['GET'])
 def display_users():
@@ -271,17 +251,64 @@ def remove_user(username):
 
 @app.route('/reload', methods=['GET'])
 def reload():
-    global progress
+    """Reload the dataset and pause face processing while reloading."""
+    global is_reloading, progress
+    is_reloading = True  # Set reloading flag to true
     progress = 0  # Reset progress
-    # Simulate reloading process
-    for _ in range(10):
-        time.sleep(1)  # Simulating time taken for each step
-        progress += 10  # Increment progress
+    
+    # Function to simulate the reloading process with progress updates
+    def reload_data():
+        global known_face_encodings, known_face_names, progress, is_reloading
+        try:
+            # Reload the face encodings
+            known_face_encodings, known_face_names = load_face_encodings()
+
+            # Simulating time-consuming reloading process
+            for _ in range(10):
+                time.sleep(1)  # Simulate each reloading step
+                progress += 10  # Increment progress
+
+        finally:
+            # Ensure the reloading flag is reset even if an error occurs
+            is_reloading = False
+
+    # Start the reloading process in a separate thread so it doesn't block the app
+    threading.Thread(target=reload_data).start()
+
     return jsonify({"message": "Reloading started"}), 200
+
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    global is_reloading
+
+    # If reloading is in progress, wait until it finishes
+    while is_reloading:
+        time.sleep(0.1)  # Wait briefly before checking again
+
+    # Continue with face processing once reloading is done
+    data = request.form.get('image')
+    
+    # Convert base64 to image
+    image_data = base64.b64decode(data.split(',')[1])
+    img = Image.open(BytesIO(image_data))
+    img = img.convert('RGB')  # Ensure it's RGB
+    frame = np.array(img)
+
+    # Process the frame
+    face_data = []
+    process_frames(frame, face_data)
+
+    # Return face locations and labels to front end
+    return jsonify({"face_data": [{"name": name, "box": box} for name, box in face_data]})
 
 @app.route('/reload_progress', methods=['GET'])
 def reload_progress():
-    return jsonify({"progress": progress}), 200
+    """Get the current progress of the reloading process."""
+    global progress, is_reloading
+    return jsonify({
+        "progress": progress,
+        "is_reloading": is_reloading
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True)

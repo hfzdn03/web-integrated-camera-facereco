@@ -12,6 +12,23 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
     <title>Face Recognition Based Attendance System</title>
+    <style>
+        #video2 {
+            width: 100%;
+            height: auto;
+            border: 1px solid black;
+            position: relative;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Ensure the canvas doesn't block video interactions */
+        }
+    </style>
 </head>
 
 <body class="bg-white">
@@ -34,12 +51,10 @@
                     </div>
                     <div class="card-body">
                         <h5>Detection Capture</h5>
-                        <div style="position: relative;">
-                            <video id="video2" width="100%" height="auto" autoplay></video>
-                            <canvas id="canvas2" width="100%" height="auto" style="position: absolute; top: 0; left: 0;"></canvas>
+                        <div style="position: relative; width: 100%; height: auto;">
+                            <video id="video2" class="img-fluid" autoplay></video>
+                            <canvas id="canvas2" width="100%" height="auto"></canvas>
                         </div>
-                        <a href="/start" class="btn btn-primary btn-lg w-100 mb-3">Take Attendance <i
-                                class="material-icons">beenhere</i></a>
 
                         <table class="table table-bordered table-striped">
                             <thead class="table-dark">
@@ -127,7 +142,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <video id="video" width="100%" height="auto" autoplay></video>
+                    <video id="video" class="img-fluid" autoplay style="border: 2px solid #ddd;"></video>
                     <img id="preview" src="" alt="Captured Image" style="display: none; width: 100%; height: auto;" />
                     <div class="mt-3 text-center">
                         <button class="btn btn-primary" id="capture-btn">Capture Image <i class="material-icons">camera</i></button>
@@ -157,49 +172,54 @@
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Scripts -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <script>
-        // Initialize video stream for the main camera
-        const video = document.getElementById('video');
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-            })
-            .catch(err => {
-                console.error("Error accessing the camera: ", err);
-            });
+<script>
+    // Initialize video stream for the registration modal
+    const video = document.getElementById('video');
+    const preview = document.getElementById('preview');
+    const video2 = document.getElementById('video2');
+    const canvas2 = document.getElementById('canvas2');
+    const context = canvas2.getContext('2d');
 
-        // Capture image functionality for the modal camera
-        $('#capture-btn').on('click', function() {
-            const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
-
-            // Capture a single image
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imgData = canvas.toDataURL('image/png');
-
-            // Show the captured image in the modal
-            $('#preview').attr('src', imgData).show();
-
-            const staffName = $('#staff-name').val();
-            const staffId = $('#staff-id').val();
-
-            // Send imgData to the server or handle it as needed
-            $.post('/add', { image: imgData, staff_name: staffName, staff_id: staffId }, function(response) {
-                console.log(response.message);
-                $('#captureModal').modal('hide'); // Close modal after capture
-                $('#staff-name').val(''); // Clear the staff name input
-                $('#staff-id').val(''); // Clear the staff ID input
-            });
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+            video.srcObject = stream;
+        })
+        .catch(err => {
+            console.error("Error accessing the camera: ", err);
         });
 
-        // Initialize video stream for the detection capture
-        const video2 = document.getElementById('video2');
+    // Capture image functionality
+    $('#capture-btn').on('click', function () {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // Draw image from the video
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imgData = canvas.toDataURL('image/png');
+        
+        // Show the captured image in the modal
+        preview.src = imgData;
+        preview.style.display = 'block';
+
+        const staffName = $('#staff-name').val();
+        const staffId = $('#staff-id').val();
+
+        // Send the captured image to the server for saving
+        $.post('/add', { image: imgData, staff_name: staffName, staff_id: staffId }, function (response) {
+            console.log(response.message);
+            $('#captureModal').modal('hide');
+            $('#staff-name').val('');
+            $('#staff-id').val('');
+        });
+    });
+
+        // Access the camera
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => {
                 video2.srcObject = stream;
@@ -208,51 +228,152 @@
                 console.error("Error accessing the camera: ", err);
             });
 
-        // Event listener for showing users
-        $('#show-users').on('click', function() {
-            $.get('/get_users', function(users) {
-                $('#user-list').empty();
-                users.forEach(user => {
-                    $('#user-list').append(`<li class="list-group-item">${user}</li>`);
+        // Ensure the canvas matches the video size dynamically
+        video2.addEventListener('loadedmetadata', () => {
+            canvas2.width = video2.videoWidth;
+            canvas2.height = video2.videoHeight;
+        });
+
+        // Function to send and draw frames
+        function sendFrame() {
+            context.drawImage(video2, 0, 0, canvas2.width, canvas2.height);
+            const frame = canvas2.toDataURL('image/jpeg');  // Capture frame as base64
+
+            $.ajax({
+                url: '/process_frame',
+                method: 'POST',
+                data: { image: frame },
+                success: function(response) {
+                    // Clear previous drawings
+                    context.clearRect(0, 0, canvas2.width, canvas2.height);
+                    context.drawImage(video2, 0, 0, canvas2.width, canvas2.height);
+
+                    // Draw bounding boxes and labels
+                    response.face_data.forEach(face => {
+                        const { name, box } = face;
+                        const [left, top, right, bottom] = box;
+
+                        context.strokeStyle = 'red';
+                        context.lineWidth = 2;
+                        context.strokeRect(left, top, right - left, bottom - top);
+                        context.font = '18px Arial';
+                        context.fillStyle = 'white';
+                        context.fillText(name, left, top - 10);
+                    });
+                }
+            });
+        }
+
+        // Continuously capture frames and send them for processing
+        setInterval(sendFrame, 500);  // Send a frame every 500ms
+
+        function checkProgress() {
+            $.get('/progress', function(data) {
+                $('#progress-value').text(data.progress);
+                $('#progress-fill').css('width', data.progress + '%');
+
+                if (data.progress >= 100) {
+                    $('#completion-message').show();
+                    setTimeout(function() {
+                        location.reload();  // Refresh the page after 2 seconds
+                    }, 2000);
+                } else {
+                    setTimeout(checkProgress, 1000);  // Check progress every second
+                }
+            });
+        }
+
+        $(document).ready(function() {
+            checkProgress();  // Start checking progress when the document is ready
+        });
+        $(document).ready(function() {
+            // Fetch users and display in modal
+            $('#show-users').on('click', function() {
+                $.getJSON('/users', function(data) {
+                    $('#user-list').empty();  // Clear existing list items
+                    if (data.length === 0) {
+                        $('#user-list').append('<li class="list-group-item">No users found.</li>');
+                    } else {
+                        data.forEach(function(username) {
+                            $('#user-list').append(
+                                '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+                                username +
+                                '<button class="btn btn-danger btn-sm remove-user" data-username="' + username + '">Remove</button>' +
+                                '</li>'
+                            );
+                        });
+                    }
+                    $('#usersModal').modal('show');  // Show modal
                 });
-                $('#usersModal').modal('show');
             });
-        });
 
-        // Train model button click event
-        $('#train-btn').on('click', function() {
-            $.post('/train', function(response) {
-                const interval = setInterval(() => {
-                    $.get('/training_progress', function(progress) {
-                        $('#progress-value').text(progress.value);
-                        $('#progress-fill').css('width', progress.value + '%');
-                        if (progress.value >= 100) {
-                            clearInterval(interval);
-                            $('#completion-message').show();
+            // Remove user on button click
+            $(document).on('click', '.remove-user', function() {
+                const username = $(this).data('username');
+                $.post('/remove_user/' + username, function(response) {
+                    alert(response.message);
+                    location.reload();  // Refresh the page to see changes
+                }).fail(function() {
+                    alert('Failed to remove user.');
+                });
+            });
+
+            // Train model and update progress bar
+            $('#train-btn').on('click', function() {
+                $.ajax({
+                    type: 'GET',
+                    url: '/train',
+                    success: function(data) {
+                        console.log(data);
+                    }
+                });
+
+                var progressBar = $('#progress-bar');
+                var progress = 0;
+
+                function updateProgress() {
+                    $.ajax({
+                        type: 'GET',
+                        url: '/reload_progress',
+                        success: function(data) {
+                            progress = data.progress;
+                            progressBar.css('width', progress + '%');
+                            progressBar.text(progress + '%');
                         }
                     });
-                }, 1000);
-            });
-        });
+                }
 
-        // Reload dataset button click event
-        $('#reload-btn').on('click', function() {
-            $('#progress-section').show();
-            $.post('/reload', function(response) {
-                const interval = setInterval(() => {
-                    $.get('/reload_progress', function(progress) {
-                        $('#progress-value').text(progress.value);
-                        $('#progress-fill').css('width', progress.value + '%');
-                        if (progress.value >= 100) {
-                            clearInterval(interval);
-                            $('#completion-message').show();
-                        }
-                    });
-                }, 1000);
+                setInterval(updateProgress, 1000);
             });
+
+            document.getElementById('reload-btn').addEventListener('click', function() {
+                document.getElementById('progress-section').style.display = 'block';
+                this.disabled = true; // Disable the button immediately
+                fetch('/reload').then(response => {
+                    if (response.ok) {
+                        checkProgress();
+                    } else {
+                        this.disabled = false; // Re-enable button if fetch fails
+                    }
+                });
+            });
+
+            function checkProgress() {
+                fetch('/reload_progress').then(response => response.json()).then(data => {
+                    document.getElementById('progress-value').innerText = data.progress;
+                    document.getElementById('progress-fill').style.width = data.progress + '%';
+
+                    if (data.progress < 100) {
+                        setTimeout(checkProgress, 100); // Check progress again after 100ms
+                    } else {
+                        document.getElementById('completion-message').style.display = 'block';
+                        // Optionally, you can disable the reload button to prevent multiple clicks
+                        document.getElementById('reload-btn').disabled = true;
+                    }
+                });
+            } 
         });
-    </script>
+</script>
 </body>
 
 </html>
-
