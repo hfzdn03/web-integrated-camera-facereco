@@ -288,22 +288,6 @@
         // Continuously capture frames and send them for processing
         setInterval(sendFrame, 500);  // Send a frame every 500ms
 
-        function checkProgress() {
-            $.get('/reload_progress', function(data) {
-                $('#progress-value').text(data.progress);
-                $('#progress-fill').css('width', data.progress + '%');
-
-                if (data.progress >= 100) {
-                    $('#completion-message').show();
-                    setTimeout(function() {
-                        location.reload();  // Refresh the page after 2 seconds
-                    }, 2000);
-                } else {
-                    setTimeout(checkProgress, 1000);  // Check progress every second
-                }
-            });
-        }
-
         $(document).ready(function() {
             checkProgress();  // Start checking progress when the document is ready
         });
