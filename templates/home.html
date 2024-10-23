@@ -373,6 +373,34 @@
                 });
             } 
         });
+        document.addEventListener('DOMContentLoaded', function () {
+        // Function to check camera permission
+        async function checkCameraPermission() {
+            try {
+                // Request permission to access the camera
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                
+                // If permission is granted, you can continue with your application logic
+                console.log('Camera permission granted.');
+
+                // Close the stream to release the camera after checking permission
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+            } catch (error) {
+                // If permission is denied or not yet requested
+                if (error.name === 'NotAllowedError') {
+                    alert('Camera permission denied. Please enable it in your browser settings.');
+                } else if (error.name === 'NotFoundError') {
+                    alert('No camera found on this device.');
+                } else {
+                    console.error('Error checking camera permission:', error);
+                }
+            }
+        }
+
+        // Check for camera permission on page load
+        checkCameraPermission();
+    });
 </script>
 </body>
 
