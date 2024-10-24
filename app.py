@@ -38,7 +38,7 @@ directories = [
 # Track the last detection time for both time in and time out
 last_detection = {}  # Will store the last detection time for each user
 
-TIMEOUT_WINDOW = timedelta(seconds=10)  # 3 minutes window for both in/out
+TIMEOUT_WINDOW = timedelta(minutes=3)  # 3 minutes window for both in/out
 
 for directory in directories:
     if not os.path.isdir(directory):
