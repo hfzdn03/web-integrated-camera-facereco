@@ -135,17 +135,16 @@ def add_attendance(name, action):
             new_row = pd.DataFrame([[username, int(userid), current_time_str, '']], 
                                    columns=['Name', 'Roll', 'Time In', 'Time Out'])
             df = pd.concat([df, new_row], ignore_index=True)
+            print(f"Logged Time In for {username} at {current_time_str}")
     elif action == 'out':
         # Log Time Out only if there is a Time In that hasn't been followed by a Time Out
         if not user_records.empty and pd.isna(user_records.iloc[-1]['Time Out']):
             df.loc[df.index == user_records.index[-1], 'Time Out'] = current_time_str
+            print(f"Logged Time Out for {username} at {current_time_str}")
 
     # Save the updated CSV back to the file
     df.to_csv(attendance_file, index=False)
 
-    print(f"Attendance for {name} updated successfully at {current_time_str}")
-
-# In the process_frames function, ensure that Time In and Time Out are not logged simultaneously
 def process_frames(frame, face_data):
     global last_detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)  # Resize frame to 1/4 size
