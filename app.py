@@ -170,6 +170,12 @@ def process_frames(frame, face_data):
             # Check if the user should be marked for Time In
             if (last_detection[name]['last_time_in'] is None or 
                 (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW):
+                
+                # Allow a new Time In if the last Time Out was logged
+                if last_detection[name]['last_time_out'] is not None:
+                    last_detection[name]['last_time_in'] = None  # Reset last_time_in after Time Out
+                    last_detection[name]['last_time_out'] = None  # Reset last_time_out after Time Out
+
                 if last_detection[name]['last_time_in'] is None:  # Only log if not already logged
                     add_attendance(name, 'in')  # Mark attendance for Time In
                     last_detection[name]['last_time_in'] = current_time
