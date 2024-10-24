@@ -61,9 +61,12 @@ if not os.path.isdir('Attendance'):
 
 # Create necessary directories and CSV file
 attendance_csv = f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv'
-if not os.path.isfile(attendance_csv):
-    with open(attendance_csv, 'w') as f:
-        f.write('Name,Roll,Time In,Time Out')
+try:
+    if not os.path.isfile(attendance_csv):
+        with open(attendance_csv, 'w') as f:
+            f.write('Name,Roll,Time In,Time Out')
+except Exception as e:
+    print(f"Error creating CSV file: {e}")
 
 def extract_attendance():
     if not os.path.isfile(attendance_csv):
@@ -103,39 +106,6 @@ def load_face_encodings():
 # Initialize a dictionary to store detection times
 detection_start_time = {}
 
-def process_frames(frame, face_data):
-    global last_detection
-    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)  # Resize frame to 1/4 size
-    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-    
-    # Face location detection
-    face_locations = fr.face_locations(rgb_frame, model="hog")  
-    face_encodings = fr.face_encodings(rgb_frame, face_locations)
-    
-    for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-        top, right, bottom, left = [v * 4 for v in (top, right, bottom, left)]  # Scale back up
-        name = identify_face(face_encoding)
-        
-        # Check if the face is not "Unknown" and record detection time
-        if name != "Unknown":
-            current_time = datetime.now()
-            if name not in last_detection:
-                last_detection[name] = {'last_time_in': None, 'last_time_out': None}
-            
-            # Check if the user should be marked for Time In
-            if last_detection[name]['last_time_in'] is None or (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
-                add_attendance(name, 'in')  # Mark attendance for Time In
-                last_detection[name]['last_time_in'] = current_time
-            
-            # Check if the user should be marked for Time Out
-            if last_detection[name]['last_time_out'] is None or (current_time - last_detection[name]['last_time_out']) >= TIMEOUT_WINDOW:
-                # Only log Time Out if Time In has already been logged
-                if last_detection[name]['last_time_in'] is not None:
-                    add_attendance(name, 'out')  # Mark attendance for Time Out
-                    last_detection[name]['last_time_out'] = current_time
-
-        face_data.append((name, (left, top, right, bottom)))
-
 def add_attendance(name, action):
     if '_' not in name:
         return
@@ -160,20 +130,53 @@ def add_attendance(name, action):
     user_records = df[df['Roll'] == int(userid)]
 
     if action == 'in':
+        # Log Time In if no previous record exists or last record has Time Out
         if user_records.empty or pd.notna(user_records.iloc[-1]['Time Out']):
-            # No existing record or last record has Time Out, log Time In
             new_row = pd.DataFrame([[username, int(userid), current_time_str, '']], 
                                    columns=['Name', 'Roll', 'Time In', 'Time Out'])
             df = pd.concat([df, new_row], ignore_index=True)
     elif action == 'out':
+        # Log Time Out only if there is a Time In that hasn't been followed by a Time Out
         if not user_records.empty and pd.isna(user_records.iloc[-1]['Time Out']):
-            # If there's a Time In recorded but no Time Out, log Time Out
             df.loc[df.index == user_records.index[-1], 'Time Out'] = current_time_str
 
     # Save the updated CSV back to the file
     df.to_csv(attendance_file, index=False)
 
     print(f"Attendance for {name} updated successfully at {current_time_str}")
+
+# In the process_frames function, ensure that Time In and Time Out are not logged simultaneously
+def process_frames(frame, face_data):
+    global last_detection
+    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)  # Resize frame to 1/4 size
+    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+    # Face location detection
+    face_locations = fr.face_locations(rgb_frame, model="hog")  
+    face_encodings = fr.face_encodings(rgb_frame, face_locations)
+
+    for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+        top, right, bottom, left = [v * 4 for v in (top, right, bottom, left)]  # Scale back up
+        name = identify_face(face_encoding)
+
+        # Check if the face is not "Unknown" and record detection time
+        if name != "Unknown":
+            current_time = datetime.now()
+            if name not in last_detection:
+                last_detection[name] = {'last_time_in': None, 'last_time_out': None}
+            
+            # Check if the user should be marked for Time In
+            if last_detection[name]['last_time_in'] is None or (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
+                add_attendance(name, 'in')  # Mark attendance for Time In
+                last_detection[name]['last_time_in'] = current_time
+            
+            # Check if the user should be marked for Time Out
+            if last_detection[name]['last_time_out'] is None and last_detection[name]['last_time_in'] is not None:
+                if (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
+                    add_attendance(name, 'out')  # Mark attendance for Time Out
+                    last_detection[name]['last_time_out'] = current_time
+
+        face_data.append((name, (left, top, right, bottom)))
 
 def identify_face(face_encoding):
     """Identify the face from known encodings."""
