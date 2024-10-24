@@ -38,7 +38,7 @@ directories = [
 # Track the last detection time for both time in and time out
 last_detection = {}  # Will store the last detection time for each user
 
-TIMEOUT_WINDOW = timedelta(minutes=3)  # 3 minutes window for both in/out
+TIMEOUT_WINDOW = timedelta(seconds=10)  # 3 minutes window for both in/out
 
 for directory in directories:
     if not os.path.isdir(directory):
@@ -173,14 +173,9 @@ def process_frames(frame, face_data):
                 
                 # Allow a new Time In if the last Time Out was logged
                 if last_detection[name]['last_time_out'] is not None:
-                    # Check if 3 minutes have passed since last Time Out
-                    if (current_time - last_detection[name]['last_time_out']) >= TIMEOUT_WINDOW:
-                        add_attendance(name, 'in')  # Mark attendance for Time In
-                        last_detection[name]['last_time_in'] = current_time
-                        print(f"Logged Time In for {name} at {current_time}")
-                    else:
-                        print(f"{name} cannot log Time In yet. Must wait for 3 minutes after Time Out.")
-                else:
+                    last_detection[name]['last_time_in'] = None  # Reset last_time_in after Time Out
+
+                if last_detection[name]['last_time_in'] is None:  # Only log if not already logged
                     add_attendance(name, 'in')  # Mark attendance for Time In
                     last_detection[name]['last_time_in'] = current_time
                     print(f"Logged Time In for {name} at {current_time}")
