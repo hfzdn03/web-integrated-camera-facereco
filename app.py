@@ -35,9 +35,10 @@ directories = [
     'face_rec'
 ]
 
-# Define the minimum detection duration and detection timeout
-MIN_DETECTION_DURATION = timedelta(seconds=2)  # 2 seconds
-DETECTION_TIMEOUT = timedelta(seconds=1)  # 1 seconds
+# Track the last detection time for both time in and time out
+last_detection = {}  # Will store the last detection time for each user
+
+TIMEOUT_WINDOW = timedelta(minutes=3)  # 3 minutes window for both in/out
 
 for directory in directories:
     if not os.path.isdir(directory):
@@ -58,39 +59,26 @@ def load_faces_and_update_progress():
 if not os.path.isdir('Attendance'):
     os.makedirs('Attendance')
 
+# Create necessary directories and CSV file
 attendance_csv = f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv'
 if not os.path.isfile(attendance_csv):
     with open(attendance_csv, 'w') as f:
-        f.write('Name,Roll,Time')
+        f.write('Name,Roll,Time In,Time Out')
 
-# Update the extract_attendance function to handle missing file
 def extract_attendance():
     if not os.path.isfile(attendance_csv):
-        return [], [], [], 0  # Return empty lists if file doesn't exist
+        return [], [], [], [], 0  # Return empty lists if file doesn't exist
     df = pd.read_csv(attendance_csv)
+    
+    # Replace NaN values with an empty string
+    df.fillna('', inplace=True)
+    
     names = df['Name']
     rolls = df['Roll']
-    times = df['Time']
+    times_in = df['Time In']
+    times_out = df['Time Out']
     l = len(df)
-    return names, rolls, times, l
-
-def add_attendance(name):
-    if '_' not in name:
-        return
-    username, userid = name.split('_')
-
-    # Set the timezone to Kuala Lumpur/Singapore
-    kl_timezone = pytz.timezone('Asia/Kuala_Lumpur')
-    current_time = datetime.now(kl_timezone).strftime("%H:%M:%S")
-    
-    df = pd.read_csv(f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv')
-    if int(userid) in list(df['Roll']):
-        df.loc[df['Roll'] == int(userid), 'Time'] = current_time
-    else:
-        new_row = pd.DataFrame([[username, int(userid), current_time]], columns=['Name', 'Roll', 'Time'])
-        df = pd.concat([df, new_row])
-    
-    df.to_csv(f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv', index=False)
+    return names, rolls, times_in, times_out, l
 
 # Global variables to store known face encodings and names
 known_face_encodings = []
@@ -116,6 +104,7 @@ def load_face_encodings():
 detection_start_time = {}
 
 def process_frames(frame, face_data):
+    global last_detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)  # Resize frame to 1/4 size
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
     
@@ -127,23 +116,64 @@ def process_frames(frame, face_data):
         top, right, bottom, left = [v * 4 for v in (top, right, bottom, left)]  # Scale back up
         name = identify_face(face_encoding)
         
-        # Check if the face is not "Unknown" and record detection start time
-        if name != "Unknown" and name not in detection_start_time:
-            detection_start_time[name] = datetime.now()
-        elif name != "Unknown":
-            # Calculate detection duration
-            detection_duration = datetime.now() - detection_start_time[name]
-            if detection_duration >= MIN_DETECTION_DURATION:
-                add_attendance(name)
-                # Safely delete the name from detection_start_time if it exists
-                if name in detection_start_time:
-                    del detection_start_time[name]
-
-        # Remove if detection exceeds timeout
-        if name in detection_start_time and datetime.now() - detection_start_time[name] >= DETECTION_TIMEOUT:
-            del detection_start_time[name]
+        # Check if the face is not "Unknown" and record detection time
+        if name != "Unknown":
+            current_time = datetime.now()
+            if name not in last_detection:
+                last_detection[name] = {'last_time_in': None, 'last_time_out': None}
+            
+            # Check if the user should be marked for Time In
+            if last_detection[name]['last_time_in'] is None or (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
+                add_attendance(name, 'in')  # Mark attendance for Time In
+                last_detection[name]['last_time_in'] = current_time
+            
+            # Check if the user should be marked for Time Out
+            if last_detection[name]['last_time_out'] is None or (current_time - last_detection[name]['last_time_out']) >= TIMEOUT_WINDOW:
+                # Only log Time Out if Time In has already been logged
+                if last_detection[name]['last_time_in'] is not None:
+                    add_attendance(name, 'out')  # Mark attendance for Time Out
+                    last_detection[name]['last_time_out'] = current_time
 
         face_data.append((name, (left, top, right, bottom)))
+
+def add_attendance(name, action):
+    if '_' not in name:
+        return
+    username, userid = name.split('_')
+
+    # Set the timezone to Kuala Lumpur/Singapore
+    kl_timezone = pytz.timezone('Asia/Kuala_Lumpur')
+    current_time = datetime.now(kl_timezone)
+    current_time_str = current_time.strftime("%H:%M:%S")
+    
+    # Load the attendance CSV for today
+    attendance_file = f'Attendance/FaceReco-{date.today().strftime("%m_%d_%y")}.csv'
+    
+    if not os.path.isfile(attendance_file):
+        # If the CSV doesn't exist, create it with headers
+        df = pd.DataFrame(columns=['Name', 'Roll', 'Time In', 'Time Out'])
+    else:
+        # Load the existing CSV file
+        df = pd.read_csv(attendance_file)
+
+    # Check if the user has already checked in for the day
+    user_records = df[df['Roll'] == int(userid)]
+
+    if action == 'in':
+        if user_records.empty or pd.notna(user_records.iloc[-1]['Time Out']):
+            # No existing record or last record has Time Out, log Time In
+            new_row = pd.DataFrame([[username, int(userid), current_time_str, '']], 
+                                   columns=['Name', 'Roll', 'Time In', 'Time Out'])
+            df = pd.concat([df, new_row], ignore_index=True)
+    elif action == 'out':
+        if not user_records.empty and pd.isna(user_records.iloc[-1]['Time Out']):
+            # If there's a Time In recorded but no Time Out, log Time Out
+            df.loc[df.index == user_records.index[-1], 'Time Out'] = current_time_str
+
+    # Save the updated CSV back to the file
+    df.to_csv(attendance_file, index=False)
+
+    print(f"Attendance for {name} updated successfully at {current_time_str}")
 
 def identify_face(face_encoding):
     """Identify the face from known encodings."""
@@ -191,8 +221,19 @@ def save_image(image, name, staff_id):
 
 @app.route('/')
 def home():
-    names, rolls, times, l = extract_attendance()
-    return render_template('home.html', names=names, rolls=rolls, times=times, l=l, totalreg=len(os.listdir('face_rec')), datetoday2=date.today().strftime("%d-%B-%Y"), algo='FaceReco mod', facereco = True)
+    names, rolls, times_in, times_out, l = extract_attendance()
+    return render_template('home.html', names=names, rolls=rolls, times_in=times_in, times_out=times_out, l=l, totalreg=len(os.listdir('face_rec')), datetoday2=date.today().strftime("%d-%B-%Y"), algo='FaceReco mod', facereco = True)
+
+@app.route('/attendance_data', methods=['GET'])
+def attendance_data():
+    names, rolls, times_in, times_out, l = extract_attendance()
+    return jsonify({
+        'names': names.tolist(),
+        'rolls': rolls.tolist(),
+        'times_in': times_in.tolist(),
+        'times_out': times_out.tolist(),
+        'length': l
+    })
 
 @app.route('/add', methods=['POST'])
 def add_user():
