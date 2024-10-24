@@ -149,6 +149,7 @@ def process_frames(frame, face_data):
     global last_detection
     small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)  # Resize frame to 1/4 size
     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+    current_time = datetime.now()
 
     # Face location detection
     face_locations = fr.face_locations(rgb_frame, model="hog")  
@@ -158,23 +159,36 @@ def process_frames(frame, face_data):
         top, right, bottom, left = [v * 4 for v in (top, right, bottom, left)]  # Scale back up
         name = identify_face(face_encoding)
 
-        # Check if the face is not "Unknown" and record detection time
+        # Only process known faces
         if name != "Unknown":
-            current_time = datetime.now()
             if name not in last_detection:
                 last_detection[name] = {'last_time_in': None, 'last_time_out': None}
+
+            # Print the current state of last_detection
+            print(f"Current state for {name} before processing: {last_detection[name]}")
             
             # Check if the user should be marked for Time In
-            if last_detection[name]['last_time_in'] is None or (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
-                add_attendance(name, 'in')  # Mark attendance for Time In
-                last_detection[name]['last_time_in'] = current_time
-            
+            if (last_detection[name]['last_time_in'] is None or 
+                (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW):
+                if last_detection[name]['last_time_in'] is None:  # Only log if not already logged
+                    add_attendance(name, 'in')  # Mark attendance for Time In
+                    last_detection[name]['last_time_in'] = current_time
+                    print(f"Logged Time In for {name} at {current_time}")
+
             # Check if the user should be marked for Time Out
             if last_detection[name]['last_time_out'] is None and last_detection[name]['last_time_in'] is not None:
+                # Check if the timeout window has passed since last Time In
                 if (current_time - last_detection[name]['last_time_in']) >= TIMEOUT_WINDOW:
                     add_attendance(name, 'out')  # Mark attendance for Time Out
                     last_detection[name]['last_time_out'] = current_time
-
+                    print(f"Logged Time Out for {name} at {current_time}")
+                else:
+                    print(f"{name} has not yet timed out. Time since last Time In: {current_time - last_detection[name]['last_time_in']}")
+            
+            # Print the time since last Time In (for debugging)
+            print(f"{name} - Time since last Time In: {current_time - last_detection[name]['last_time_in']}")
+        
+        # Append face data regardless of whether it's known or unknown
         face_data.append((name, (left, top, right, bottom)))
 
 def identify_face(face_encoding):
